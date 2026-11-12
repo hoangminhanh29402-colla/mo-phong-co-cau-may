@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mô phỏng cơ cấu tay quay – con trượt</title>
+<style>
+  :root { color-scheme: dark; --bg:#101827; --panel:#182438; --line:#30435d; --text:#edf4ff; --muted:#a9bad0; --accent:#57b6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Arial, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:16px 20px 10px; }
+  h1 { margin:0 0 6px; font-size:clamp(20px,3vw,28px); }
+  header p { margin:0; color:var(--muted); font-size:14px; line-height:1.5; }
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:12px; padding:12px; }
+  #view { position:relative; min-height:480px; height:min(72vh,720px); background:radial-gradient(circle at 50% 45%,#23344d,#0c1421 75%); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  #canvas { width:100%; height:100%; display:block; }
+  .hint { position:absolute; left:12px; bottom:10px; color:#c4d4e8; font-size:12px; background:#0b1422bb; padding:7px 9px; border-radius:7px; pointer-events:none; }
+  aside { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px; }
+  h2 { font-size:16px; margin:0 0 14px; }
+  .control { margin:14px 0; }
+  label { display:flex; justify-content:space-between; gap:8px; color:var(--muted); font-size:13px; margin-bottom:7px; }
+  output { color:var(--text); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:var(--accent); }
+  .buttons { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:15px 0; }
+  button { border:1px solid #426080; background:#223650; color:white; padding:10px; border-radius:8px; cursor:pointer; font-weight:600; }
+  button.primary { background:#1479bd; border-color:#258fd2; }
+  button:hover { filter:brightness(1.15); }
+  .readout { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
+  .metric { background:#101b2b; border:1px solid #2a3b52; border-radius:8px; padding:9px; }
+  .metric small { display:block; color:var(--muted); font-size:11px; margin-bottom:5px; }
+  .metric strong { font-size:17px; font-variant-numeric:tabular-nums; }
+  .legend { display:grid; gap:7px; margin-top:15px; font-size:12px; color:var(--muted); }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; }
+  .notes { margin:0 12px 14px; padding:13px 16px; background:#152237; border:1px solid var(--line); border-radius:10px; color:var(--muted); font-size:13px; line-height:1.55; }
+  .notes b { color:var(--text); }
+  @media(max-width:850px) { .layout { grid-template-columns:1fr; } #view { min-height:380px; height:55vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mô phỏng 3D cơ cấu tay quay – con trượt</h1>
+  <p>Nguyên lý máy · Cơ cấu phẳng 4 khâu · Biến chuyển động quay thành chuyển động tịnh tiến qua lại</p>
+</header>
+<div class="layout">
+  <section id="view">
+    <canvas id="canvas"></canvas>
+    <div class="hint">Kéo chuột để xoay · Cuộn để zoom · Kéo bằng hai ngón tay trên màn hình cảm ứng</div>
+  </section>
+  <aside>
+    <h2>Bảng điều khiển</h2>
+    <div class="buttons">
+      <button id="play" class="primary">⏸ Tạm dừng</button>
+      <button id="reset">↺ Đặt lại</button>
+    </div>
+    <div class="control">
+      <label for="speed">Tốc độ quay <output id="speedVal">30 vòng/phút</output></label>
+      <input id="speed" type="range" min="5" max="120" value="30" step="5">
+    </div>
+    <div class="control">
+      <label for="angle">Góc tay quay <output id="angleVal">45°</output></label>
+      <input id="angle" type="range" min="0" max="360" value="45" step="1">
+    </div>
+    <div class="control">
+      <label for="crank">Chiều dài tay quay r <output id="crankVal">1.0</output></label>
+      <input id="crank" type="range" min="0.6" max="1.5" value="1" step="0.1">
+    </div>
+    <div class="control">
+      <label for="rod">Chiều dài thanh truyền l <output id="rodVal">3.0</output></label>
+      <input id="rod" type="range" min="2" max="4.5" value="3" step="0.1">
+    </div>
+    <div class="readout">
+      <div class="metric"><small>Vị trí con trượt x</small><strong id="xVal">—</strong></div>
+      <div class="metric"><small>Góc quay θ</small><strong id="thetaVal">45°</strong></div>
+      <div class="metric"><small>Hành trình S = 2r</small><strong id="strokeVal">2.00</strong></div>
+      <div class="metric"><small>Vận tốc góc ω</small><strong id="omegaVal">3.14 rad/s</strong></div>
+    </div>
+    <div class="legend">
+      <div><span class="dot" style="background:#e69a3a"></span>Tay quay</div>
+      <div><span class="dot" style="background:#48b7a3"></span>Thanh truyền</div>
+      <div><span class="dot" style="background:#5da9ee"></span>Con trượt</div>
+      <div><span class="dot" style="background:#d6e1ed"></span>Giá và ray dẫn hướng</div>
+    </div>
+  </aside>
+</div>
+<div class="notes">
+  <b>Nguyên lý hoạt động:</b> Tay quay quay quanh tâm cố định O. Chốt A truyền chuyển động qua thanh truyền AB đến con trượt B. Do B bị ràng buộc chuyển động trên đường thẳng, nó thực hiện chuyển động tịnh tiến qua lại.
+  <br><b>Quan hệ động học:</b> Với θ đo từ phương chuyển động của con trượt, vị trí con trượt tính từ O là
+  <b>x = r cosθ + √(l² − r² sin²θ)</b>. Hành trình toàn phần lý tưởng <b>S = 2r</b>.
+</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+const canvas = document.querySelector('#canvas');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x111c2c);
+const camera = new THREE.PerspectiveCamera(42, canvas.clientWidth/canvas.clientHeight, 0.1, 100);
+camera.position.set(2.5, 5.2, 8.5);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(1.2, 0.4, 0);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.48;
+
+scene.add(new THREE.HemisphereLight(0xddeeff, 0x35445b, 2.0));
+const key = new THREE.DirectionalLight(0xffffff, 2.3);
+key.position.set(2, 7, 5); key.castShadow = true; scene.add(key);
+const fill = new THREE.DirectionalLight(0x6baeff, 0.8);
+fill.position.set(-5, 3, -4); scene.add(fill);
+
+const mat = (color, metalness=0.25, roughness=0.42) => new THREE.MeshStandardMaterial({color, metalness, roughness});
+const steel = mat(0xaebdce,0.65,0.3), dark = mat(0x35465c,0.55,0.4);
+const orange = mat(0xe69a3a,0.45,0.3), teal = mat(0x48b7a3,0.35,0.32);
+const blue = mat(0x398ed4,0.45,0.28), pinMat = mat(0xf2d18b,0.6,0.25);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(30,18), mat(0x172437,0.1,0.8));
+ground.rotation.x=-Math.PI/2; ground.position.y=-0.48; ground.receiveShadow=true; scene.add(ground);
+const grid = new THREE.GridHelper(18,36,0x40536b,0x293b52); grid.position.y=-0.465; scene.add(grid);
+
+function cylinderBetween(a,b,radius,material, radial=24) {
+  const d = new THREE.Vector3().subVectors(b,a);
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius,radius,d.length(),radial), material);
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), d.normalize());
+  mesh.castShadow=true; mesh.receiveShadow=true; scene.add(mesh); return mesh;
+}
+function ball(radius, material) {
+  const m = new THREE.Mesh(new THREE.SphereGeometry(radius,24,16),material);
+  m.castShadow=true; scene.add(m); return m;
+}
+function box(w,h,d,material,x,y,z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);
+  m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; scene.add(m); return m;
+}
+const O = new THREE.Vector3(0,0.65,0);
+const support = box(0.48,1.25,0.5,dark,O.x,O.y-0.55,0);
+const bearing = new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.34,0.58,40),steel);
+bearing.rotation.x=Math.PI/2; bearing.position.set(O.x,O.y,0); bearing.castShadow=true; scene.add(bearing);
+const rail = box(6.8,0.16,0.55,steel,2.25,0.0,0);
+box(0.15,0.45,0.72,dark,2.25,-0.28,0);
+const railTop = box(6.8,0.06,0.62,mat(0x75889d),2.25,0.12,0);
+
+const crankMesh = cylinderBetween(O,new THREE.Vector3(1,0.65,0),0.105,orange);
+const rodMesh = cylinderBetween(new THREE.Vector3(1,0.65,0),new THREE.Vector3(3.8,0.65,0),0.085,teal);
+const crankPin=ball(0.15,pinMat), sliderPin=ball(0.14,pinMat);
+const sliderGroup = new THREE.Group(); scene.add(sliderGroup);
+const sliderBody = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.58,0.72),blue);
+sliderBody.castShadow=true; sliderGroup.add(sliderBody);
+const sliderCap = new THREE.Mesh(new THREE.BoxGeometry(0.56,0.12,0.76),steel);
+sliderCap.position.y=0.35; sliderCap.castShadow=true; sliderGroup.add(sliderCap);
+const sliderGuide = box(0.5,0.1,0.78,dark,0,0,0); sliderGroup.add(sliderGuide);
+
+const traceMat = new THREE.MeshBasicMaterial({color:0x75c9ff});
+const tracePoints = [];
+const traceLine = new THREE.Line(new THREE.BufferGeometry(),traceMat); scene.add(traceLine);
+function makeLabel(text, position, color='#ffffff') {
+  const c=document.createElement('canvas'); c.width=512;c.height=128;
+  const ctx=c.getContext('2d');ctx.font='bold 54px Arial';ctx.fillStyle=color;ctx.fillText(text,12,82);
+  const tex=new THREE.CanvasTexture(c); const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthTest:false}));
+  sprite.scale.set(1.5,0.38,1);sprite.position.copy(position);scene.add(sprite);return sprite;
+}
+makeLabel('O – Khớp quay',new THREE.Vector3(-0.8,1.35,0),'#ffd08a');
+const labelA=makeLabel('A – Chốt quay',new THREE.Vector3(0,1.55,0),'#ffd08a');
+const labelB=makeLabel('B – Con trượt',new THREE.Vector3(3.6,1.1,0),'#8ecaff');
+
+let r=1, l=3, theta=Math.PI/4, rpm=30, playing=true, last=performance.now();
+const $=id=>document.getElementById(id);
+function updateMechanism() {
+  const Ax=O.x+r*Math.cos(theta), Ay=O.y+r*Math.sin(theta);
+  const dx=Math.sqrt(Math.max(0.001,l*l-r*r*Math.sin(theta)**2));
+  const Bx=O.x+dx+r*Math.cos(theta); // coordinate measured from crank center along slider axis
+  const A=new THREE.Vector3(Ax,Ay,0);
+  const B=new THREE.Vector3(O.x+dx+r*Math.cos(theta),O.y,0);
+  crankMesh.position.copy(O).add(A).multiplyScalar(0.5);
+  crankMesh.scale.set(1, r, 1);
+  crankMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(Math.cos(theta),Math.sin(theta),0));
+  crankMesh.position.copy(O).add(A).multiplyScalar(0.5);
+  crankMesh.geometry.dispose();
+  crankMesh.geometry=new THREE.CylinderGeometry(0.105,0.105,r,24);
+  crankMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(Math.cos(theta),Math.sin(theta),0));
+  rodMesh.geometry.dispose();
+  const rodDir=new THREE.Vector3().subVectors(B,A);
+  rodMesh.geometry=new THREE.CylinderGeometry(0.085,0.085,rodDir.length(),24);
+  rodMesh.position.copy(A).add(B).multiplyScalar(0.5);
+  rodMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),rodDir.normalize());
+  crankPin.position.copy(A); sliderPin.position.copy(B);
+  sliderGroup.position.set(B.x,O.y-0.02,0);
+  labelA.position.set(A.x,A.y+0.45,0);
+  labelB.position.set(B.x+0.25,O.y+0.55,0);
+  $('xVal').textContent=(dx+r*Math.cos(theta)).toFixed(3);
+  $('thetaVal').textContent=Math.round(theta*180/Math.PI)+'°';
+  $('angleVal').textContent=Math.round(theta*180/Math.PI)+'°';
+  $('strokeVal').textContent=(2*r).toFixed(2);
+  $('omegaVal').textContent=(rpm*2*Math.PI/60).toFixed(2)+' rad/s';
+  $('speedVal').textContent=rpm+' vòng/phút';
+  $('crankVal').textContent=r.toFixed(1);
+  $('rodVal').textContent=l.toFixed(1);
+  $('angle').value=Math.round(theta*180/Math.PI);
+  $('crank').value=r; $('rod').value=l;
+}
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt=Math.min((now-last)/1000,0.05);last=now;
+  if(playing) {
+    theta=(theta+rpm*2*Math.PI/60*dt)%(2*Math.PI);
+    tracePoints.push(new THREE.Vector3(O.x+Math.sqrt(Math.max(0.001,l*l-r*r*Math.sin(theta)**2))+r*Math.cos(theta),O.y-0.28,0.42));
+    if(tracePoints.length>240)tracePoints.shift();
+    traceLine.geometry.dispose();traceLine.geometry.setFromPoints(tracePoints);
+  }
+  updateMechanism(); controls.update(); renderer.render(scene,camera);
+}
+requestAnimationFrame(animate);
+
+$('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'⏸ Tạm dừng':'▶ Tiếp tục';};
+$('reset').onclick=()=>{theta=0;rpm=30;r=1;l=3;tracePoints.length=0;traceLine.geometry.setFromPoints([]);$('speed').value=30;updateMechanism();};
+$('speed').oninput=e=>{rpm=+e.target.value;updateMechanism();};
+$('angle').oninput=e=>{theta=+e.target.value*Math.PI/180;tracePoints.length=0;updateMechanism();};
+$('crank').oninput=e=>{r=+e.target.value;if(l<r+0.2){l=r+0.2;$('rod').value=l;}tracePoints.length=0;updateMechanism();};
+$('rod').oninput=e=>{l=Math.max(+e.target.value,r+0.2);$('rod').value=l;tracePoints.length=0;updateMechanism();};
+function resize(){
+  const w=canvas.clientWidth,h=canvas.clientHeight;
+  camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);
+}
+new ResizeObserver(resize).observe(canvas);
+updateMechanism();
+</script>
+</body>
+</html>
